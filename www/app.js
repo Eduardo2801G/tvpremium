@@ -15,6 +15,59 @@
   let favs = new Set(store.get("favs", []));
   const norm = (s) => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
 
+  // ---------- Cargador de red nativo para hls.js (solo en el APK; evita CORS) ----------
+  const Cap = window.Capacitor;
+  const NativeHttp = Cap && Cap.Plugins && Cap.Plugins.CapacitorHttp;
+  const isNative = !!(Cap && (Cap.isNativePlatform ? Cap.isNativePlatform() : (Cap.getPlatform && Cap.getPlatform() !== "web")));
+  const b64ToBuf = (b64) => {
+    const s = atob(b64), n = s.length, u = new Uint8Array(n);
+    for (let i = 0; i < n; i++) u[i] = s.charCodeAt(i);
+    return u.buffer;
+  };
+  async function nativeGet(url, headers, bin) {
+    for (let hop = 0; hop < 6; hop++) {
+      const r = await NativeHttp.request({
+        url, method: "GET", headers,
+        responseType: bin ? "arraybuffer" : "text",
+        connectTimeout: 15000, readTimeout: 20000, disableRedirects: true,
+      });
+      const loc = r.headers && (r.headers.Location || r.headers.location);
+      if ([301, 302, 303, 307, 308].includes(r.status) && loc) { url = new URL(loc, url).href; continue; }
+      return { r, url };
+    }
+    throw new Error("Demasiadas redirecciones");
+  }
+  const CapLoader = (isNative && NativeHttp) ? class {
+    constructor() {
+      this.aborted = false; this.context = null;
+      this.stats = { aborted: false, loaded: 0, retry: 0, total: 0, chunkCount: 0, bwEstimate: 0,
+        loading: { start: 0, first: 0, end: 0 }, parsing: { start: 0, end: 0 }, buffering: { start: 0, first: 0, end: 0 } };
+    }
+    destroy() { this.aborted = true; }
+    abort() { this.aborted = true; this.stats.aborted = true; }
+    load(context, config, callbacks) {
+      this.context = context;
+      const st = this.stats, bin = context.responseType === "arraybuffer";
+      const headers = { "User-Agent": navigator.userAgent };
+      if (context.rangeEnd) headers.Range = "bytes=" + (context.rangeStart || 0) + "-" + (context.rangeEnd - 1);
+      st.loading.start = performance.now();
+      nativeGet(context.url, headers, bin).then(({ r, url }) => {
+        if (this.aborted) return;
+        st.loading.first = st.loading.end = performance.now();
+        if (r.status < 200 || r.status >= 300) { callbacks.onError({ code: r.status, text: "HTTP " + r.status }, context, null, st); return; }
+        let data;
+        if (bin) data = b64ToBuf(r.data);
+        else data = typeof r.data === "string" ? r.data : JSON.stringify(r.data);
+        st.loaded = st.total = bin ? data.byteLength : data.length;
+        callbacks.onSuccess({ url, data }, st, context, null);
+      }).catch((e) => {
+        if (this.aborted) return;
+        st.loading.end = performance.now();
+        callbacks.onError({ code: 0, text: String((e && e.message) || e) }, context, null, st);
+      });
+    }
+  } : null;
+
   // ---------- Lista (pantalla principal) ----------
   function filtered() {
     const t = norm(q.value.trim());
@@ -136,13 +189,17 @@
       stage.append(v);
       v.onplaying = () => { pstatus.textContent = "En vivo"; };
       if (window.Hls && Hls.isSupported()) {
-        hls = new Hls({ lowLatencyMode: false, maxBufferLength: 20 });
+        hls = new Hls({ lowLatencyMode: false, maxBufferLength: 20, ...(CapLoader ? { loader: CapLoader } : {}) });
         let retries = 0;
         hls.on(Hls.Events.ERROR, (_, d) => {
           if (!d.fatal) return;
           if (retries++ < 2 && d.type === Hls.ErrorTypes.NETWORK_ERROR) { pstatus.textContent = "Reintentando…"; hls.startLoad(); }
           else if (retries < 3 && d.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();
-          else { pstatus.textContent = "No se pudo reproducir este canal"; showHud(); }
+          else {
+            const code = d.response && d.response.code != null ? " " + d.response.code : "";
+            pstatus.textContent = "No se pudo reproducir este canal (" + d.details + code + ")";
+            showHud();
+          }
         });
         hls.loadSource(c.u); hls.attachMedia(v);
       } else { v.src = c.u; v.onerror = () => { pstatus.textContent = "No se pudo reproducir este canal"; }; }

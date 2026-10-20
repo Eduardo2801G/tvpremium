@@ -10,6 +10,6 @@
     "allowMixedContent": true
   },
   "plugins": {
-    "CapacitorHttp": { "enabled": true }
+    "CapacitorHttp": { "enabled": false }
   }
 }
