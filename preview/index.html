@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vista previa MiTV</title>
+<style>
+  body{margin:0;background:#1a1d27;color:#fff;font-family:sans-serif;display:flex;flex-direction:column;align-items:center;min-height:100vh}
+  .bar{padding:12px;display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+  button{background:#2b3042;color:#fff;border:1px solid #444b66;padding:8px 14px;border-radius:8px;cursor:pointer}
+  button.on{background:#2e7d32;border-color:#43a047}
+  .wrap{padding:12px}
+  iframe{border:10px solid #000;border-radius:18px;background:#fff;display:block;transition:all .2s}
+  p{color:#9aa3bd;font-size:13px;max-width:640px;text-align:center}
+</style>
+</head>
+<body>
+  <div class="bar">
+    <button data-w="390" data-h="780" class="on">Teléfono</button>
+    <button data-w="820" data-h="1100">Tablet</button>
+    <button data-w="1280" data-h="720">TV (16:9)</button>
+    <button id="reload">Recargar</button>
+    <button id="open">Abrir en pestaña</button>
+  </div>
+  <div class="wrap"><iframe id="f" src="../www/index.html" tabindex="0" allow="autoplay; fullscreen; encrypted-media" allowfullscreen></iframe></div>
+  <p>Vista previa de MiTV a distintos tamaños. Con el teclado: flechas, Enter y Esc (como el control de la TV). Los canales necesitan internet; en el navegador algunos fallan por CORS, en el APK no.</p>
+<script>
+  const f = document.getElementById('f');
+  function size(w,h){ f.style.width=w+'px'; f.style.height=h+'px'; }
+  document.querySelectorAll('button[data-w]').forEach(b=>b.onclick=()=>{
+    document.querySelectorAll('button[data-w]').forEach(x=>x.classList.remove('on'));
+    b.classList.add('on'); size(b.dataset.w,b.dataset.h);
+  });
+  document.getElementById('reload').onclick=()=>{ f.src=f.src; };
+  document.getElementById('open').onclick=()=>window.open('../www/index.html','_blank');
+  size(390,780);
+</script>
+</body>
+</html>

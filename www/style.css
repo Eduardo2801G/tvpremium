@@ -1,0 +1,78 @@
+:root{--bg:#0d1017;--card:#171c27;--line:#2a3142;--txt:#eef1f8;--dim:#8f98b0;--acc:#22c55e}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--txt);font-family:system-ui,Roboto,sans-serif}
+/* Sin barras de scroll visibles (se sigue pudiendo desplazar) */
+html{scrollbar-width:none;-ms-overflow-style:none}
+html::-webkit-scrollbar,body::-webkit-scrollbar,#cats::-webkit-scrollbar{display:none;width:0;height:0}
+html.playing,html.playing body{overflow:hidden}
+body{padding:env(safe-area-inset-top) 0 0}
+header{display:flex;align-items:center;gap:16px;padding:14px 20px;position:sticky;top:0;background:var(--bg);z-index:5}
+h1{margin:0;font-size:26px}h1 span{color:var(--acc)}
+#q,#dq{background:var(--card);border:2px solid var(--line);color:var(--txt);border-radius:12px;padding:10px 14px;font-size:16px}
+#q{flex:1;max-width:420px}
+#cats{display:flex;gap:8px;padding:0 20px 12px;overflow-x:auto;scrollbar-width:none}
+.chip{flex:none;background:var(--card);color:var(--txt);border:2px solid var(--line);border-radius:999px;padding:8px 18px;font-size:15px}
+.chip.on{background:var(--acc);border-color:var(--acc);color:#04120a;font-weight:700}
+main{padding:0 20px 40px}
+#grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:14px}
+.card{background:var(--card);border:3px solid transparent;border-radius:14px;padding:10px;color:var(--txt);text-align:center;display:flex;flex-direction:column;align-items:center;gap:8px;min-height:130px}
+.card .logo{width:100%;height:70px;display:flex;align-items:center;justify-content:center}
+.card img{max-width:100%;max-height:70px;object-fit:contain}
+.card .ph{font-size:30px;font-weight:800;color:var(--dim)}
+.card .nm{font-size:13px;line-height:1.2;max-height:2.4em;overflow:hidden}
+.card .tag{font-size:10px;color:var(--dim)}
+.card .fv{color:#facc15}
+button{font:inherit;cursor:pointer}
+button:focus,input:focus{outline:none;border-color:#fff!important;box-shadow:0 0 0 3px var(--acc)}
+.card:focus{transform:scale(1.05);background:#202738}
+#more{display:block;margin:20px auto;background:var(--card);color:var(--txt);border:2px solid var(--line);padding:12px 26px;border-radius:12px}
+#empty{text-align:center;color:var(--dim)}
+#player{position:fixed;inset:0;background:#000;z-index:20;display:flex;flex-direction:column}
+#stage{position:relative;flex:1 1 auto;min-height:0;background:#000}
+#stage video,#stage iframe{width:100%;height:100%;border:0;background:#000;object-fit:contain}
+#hud{position:absolute;left:0;right:0;top:0;display:flex;align-items:center;gap:10px;padding:12px 16px;background:linear-gradient(#000c,#0000);transition:opacity .3s}
+#hud.hide{opacity:0;pointer-events:none}
+#hud button{background:#000a;color:#fff;border:2px solid #555;border-radius:10px;width:46px;height:46px;font-size:20px}
+#info{flex:1;display:flex;flex-direction:column}#pname{font-size:18px}#pstatus{color:var(--dim)}
+/* Canales web (iframe): el HUD queda siempre visible y la franja deja pasar los clics al video */
+#player.web #hud{pointer-events:none}
+#player.web #hud button{pointer-events:auto}
+@media (min-width:1000px){#grid{grid-template-columns:repeat(auto-fill,minmax(190px,1fr))}.card{min-height:150px}h1{font-size:32px}}
+
+/* Panel de canales (buscador + lista) */
+#side{flex:0 0 auto;height:40vh;display:flex;flex-direction:column;background:var(--bg);border-top:2px solid var(--line)}
+#dq{flex:none;margin:10px 12px 0;width:calc(100% - 24px)}
+#dock{flex:1 1 auto;min-height:0;padding:10px 12px;display:grid;gap:10px;overflow:auto;
+  grid-template-columns:repeat(auto-fill,minmax(110px,1fr));align-content:start;grid-auto-rows:96px;
+  scrollbar-width:none;-ms-overflow-style:none}
+#dock::-webkit-scrollbar{display:none;width:0;height:0}
+#dock .card{min-height:0;padding:6px;gap:4px}
+#dock .card .logo{height:44px}#dock .card img{max-height:44px}
+#dock .card .nm{font-size:12px}
+#dock .card.now{border-color:var(--acc);background:#16301f}
+[hidden]{display:none!important}
+
+/* Vertical (celular): en pantalla completa se oculta la lista */
+@media (orientation:portrait){
+  #player.full #side{display:none}
+}
+
+/* ===== Horizontal (TV / tablet): lista vertical a la izquierda + video a la derecha ===== */
+@media (orientation:landscape){
+  #player{--dockw:clamp(240px,28vw,340px);display:grid;grid-template-columns:var(--dockw) minmax(0,1fr);grid-template-rows:minmax(0,1fr);
+    transition:grid-template-columns .25s ease}
+  #side{grid-column:1;grid-row:1;height:auto;min-width:0;overflow:hidden;border-top:0;border-right:2px solid var(--line)}
+  #dq{margin:10px 10px 0;width:calc(100% - 20px)}
+  #dock{display:flex;flex-direction:column;gap:8px;overflow-x:hidden;overflow-y:auto;padding:10px;grid-auto-rows:auto}
+  #stage{grid-column:2;grid-row:1}
+  #hud{left:var(--dockw);transition:opacity .3s,left .25s ease}
+  #dock .card{flex:none;flex-direction:row;justify-content:flex-start;text-align:left;gap:10px;padding:6px 10px;min-height:56px}
+  #dock .card::before{content:attr(data-n);min-width:28px;text-align:right;font-size:14px;color:var(--dim)}
+  #dock .card .logo{flex:0 0 64px;width:64px;height:40px}
+  #dock .card img{max-height:40px}
+  #dock .card .nm{flex:1;min-width:0;font-size:14px;max-height:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+  /* Pantalla completa: la lista se desliza hacia afuera */
+  #player.full{--dockw:0px}
+  #player.full #side{visibility:hidden;transition:visibility 0s linear .25s}
+}
