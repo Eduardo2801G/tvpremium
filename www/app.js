@@ -15,10 +15,15 @@
   let favs = new Set(store.get("favs", []));
   const norm = (s) => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
 
-  // ---------- Cargador de red nativo para hls.js (solo en el APK; evita CORS) ----------
+  // ---------- Entorno nativo (APK) ----------
   const Cap = window.Capacitor;
   const NativeHttp = Cap && Cap.Plugins && Cap.Plugins.CapacitorHttp;
+  const AppPlugin = Cap && Cap.Plugins && Cap.Plugins.App;
+  const GolTap = window.GolTap; // puente nativo de MainActivity: toque real en pantalla
   const isNative = !!(Cap && (Cap.isNativePlatform ? Cap.isNativePlatform() : (Cap.getPlatform && Cap.getPlatform() !== "web")));
+  const useNativeBack = !!(isNative && AppPlugin && AppPlugin.addListener);
+
+  // ---------- Cargador de red nativo para hls.js (solo en el APK; evita CORS) ----------
   const b64ToBuf = (b64) => {
     const s = atob(b64), n = s.length, u = new Uint8Array(n);
     for (let i = 0; i < n; i++) u[i] = s.charCodeAt(i);
@@ -118,13 +123,44 @@
   const root = document.documentElement;
 
   const isFull = () => player.classList.contains("full");
+  const isWeb = () => player.classList.contains("web");
+
+  // ---- Cursor para canales web (iframe): flechas lo mueven, OK toca de verdad en pantalla ----
+  const ptr = document.createElement("div");
+  ptr.style.cssText = "position:fixed;left:0;top:0;width:26px;height:26px;margin:-13px 0 0 -13px;border-radius:50%;" +
+    "border:3px solid #fff;background:rgba(34,197,94,.55);box-shadow:0 0 0 2px #000a,0 0 14px #22c55e;z-index:60;pointer-events:none;display:none";
+  document.body.append(ptr);
+  let px = 0, py = 0, held = 0;
+  const cursorEnabled = () => !!(GolTap && !player.hidden && isFull() && isWeb());
+  function updatePtr(reset) {
+    const on = cursorEnabled();
+    if (on && reset) { px = innerWidth / 2; py = innerHeight / 2; }
+    ptr.style.display = on ? "block" : "none";
+    ptr.style.left = px + "px"; ptr.style.top = py + "px";
+  }
+  function movePtr(dir) {
+    held++;
+    const step = 18 + Math.min(held, 14) * 5;
+    px = Math.max(0, Math.min(innerWidth, px + dir[0] * step));
+    py = Math.max(0, Math.min(innerHeight, py + dir[1] * step));
+    updatePtr();
+  }
+  function tapPtr() {
+    const d = window.devicePixelRatio || 1;
+    try { GolTap.tap(px * d, py * d); } catch {}
+    if (ptr.animate) ptr.animate([{ transform: "scale(1)" }, { transform: "scale(1.8)" }, { transform: "scale(1)" }], { duration: 220 });
+  }
+  document.addEventListener("keyup", () => { held = 0; });
+
   function enterFull() {
     player.classList.add("full");
-    if (document.activeElement && side.contains(document.activeElement)) document.activeElement.blur();
+    const a = document.activeElement; if (a && a !== document.body) a.blur();
+    updatePtr(true);
     showHud();
   }
   function exitFull() {
     player.classList.remove("full");
+    updatePtr();
     markNow(true);
     showHud();
   }
@@ -169,7 +205,7 @@
   function showHud() {
     hud.classList.remove("hide"); clearTimeout(hudTimer);
     // En canales web (iframe) el HUD no se esconde: los clics dentro del iframe no llegan a esta página
-    if (player.classList.contains("web")) return;
+    if (isWeb()) return;
     hudTimer = setTimeout(() => hud.classList.add("hide"), 4000);
   }
   function play(i) {
@@ -187,7 +223,7 @@
       const v = document.createElement("video");
       v.autoplay = true; v.playsInline = true; v.controls = false;
       stage.append(v);
-      v.onplaying = () => { pstatus.textContent = "En vivo"; };
+      v.onplaying = () => { pstatus.textContent = v.muted ? "En vivo (sin sonido: presiona OK)" : "En vivo"; };
       if (window.Hls && Hls.isSupported()) {
         hls = new Hls({ lowLatencyMode: false, maxBufferLength: 20, ...(CapLoader ? { loader: CapLoader } : {}) });
         let retries = 0;
@@ -203,38 +239,55 @@
         });
         hls.loadSource(c.u); hls.attachMedia(v);
       } else { v.src = c.u; v.onerror = () => { pstatus.textContent = "No se pudo reproducir este canal"; }; }
-      v.play().catch(() => {});
+      // Si el autoplay con sonido falla, arranca sin sonido y OK activa el sonido
+      v.play().catch(() => { v.muted = true; v.play().catch(() => {}); });
     } else {
       const f = document.createElement("iframe");
-      f.allow = "autoplay; fullscreen; encrypted-media"; f.allowFullscreen = true; f.src = c.u;
+      f.allow = "autoplay; fullscreen; encrypted-media; picture-in-picture"; f.allowFullscreen = true; f.src = c.u;
       stage.append(f); pstatus.textContent = "En vivo (web)";
     }
+    updatePtr(true);
   }
   function openPlayer(ch) {
     const idx = plist.indexOf(ch);
     if (idx < 0) return;
     player.hidden = false;
     root.classList.add("playing");
-    if (!history.state || history.state.p !== 1) history.pushState({ p: 1 }, "");
+    if (!useNativeBack && (!history.state || history.state.p !== 1)) history.pushState({ p: 1 }, "");
     renderDock(); play(idx);
     player.classList.add("full");
+    updatePtr(true);
     markNow(false);
   }
   function closePlayer() {
     stop(); player.hidden = true; player.classList.remove("full", "web");
     root.classList.remove("playing");
+    updatePtr();
     const c = plist[cur];
     const gi = c ? list.indexOf(c) : -1;
     const el = (gi >= 0 && grid.querySelector('[data-i="' + gi + '"]')) || grid.querySelector(".card");
     if (el) el.focus({ preventScroll: false });
   }
-  // Back: si está en pantalla completa vuelve a mostrar la lista; si ya está la lista, cierra el reproductor
+
+  // ---------- Botón Atrás ----------
+  // Pantalla completa -> muestra la lista; con la lista abierta -> cierra el reproductor; en la cuadrícula -> sale de la app
+  let lastBack = 0;
+  function handleBack() {
+    const now = Date.now();
+    if (now - lastBack < 350) return; // evita doble disparo (tecla + evento nativo)
+    lastBack = now;
+    if (player.hidden) { if (AppPlugin && AppPlugin.exitApp) AppPlugin.exitApp(); return; }
+    if (isFull()) exitFull(); else closePlayer();
+  }
+  function goBack() { if (useNativeBack) handleBack(); else history.back(); }
+  if (useNativeBack) AppPlugin.addListener("backButton", handleBack);
+  // En el navegador (PC) se usa el historial
   window.addEventListener("popstate", () => {
-    if (player.hidden) return;
+    if (useNativeBack || player.hidden) return;
     if (isFull()) { exitFull(); history.pushState({ p: 1 }, ""); }
     else closePlayer();
   });
-  $("#back").onclick = () => history.back();
+  $("#back").onclick = goBack;
   $("#prev").onclick = () => { play(cur - 1); };
   $("#next").onclick = () => { play(cur + 1); };
   favBtn.onclick = () => {
@@ -269,7 +322,7 @@
   document.addEventListener("keydown", (e) => {
     if (!player.hidden) {
       const typing = document.activeElement === dq;
-      if (e.key === "Escape" || e.key === "GoBack" || (e.key === "Backspace" && !typing)) { e.preventDefault(); history.back(); return; }
+      if (e.key === "Escape" || e.key === "GoBack" || (e.key === "Backspace" && !typing)) { e.preventDefault(); goBack(); return; }
       if (typing && e.key === "Enter") {
         e.preventDefault();
         const f = dock.querySelector(".card:not([hidden])");
@@ -279,6 +332,17 @@
       if (typing && (e.key === "ArrowLeft" || e.key === "ArrowRight")) return;
       if (e.key === "PageUp" || e.key === "ChannelUp") { e.preventDefault(); play(cur - 1); markNow(false); return; }
       if (e.key === "PageDown" || e.key === "ChannelDown") { e.preventDefault(); play(cur + 1); markNow(false); return; }
+      if (isFull() && !typing) {
+        if (cursorEnabled()) {
+          // Canal web: flechas mueven el cursor, OK toca en pantalla
+          if (DIRS[e.key]) { e.preventDefault(); movePtr(DIRS[e.key]); return; }
+          if (e.key === "Enter") { e.preventDefault(); tapPtr(); return; }
+        } else if (e.key === "Enter" && !(document.activeElement && document.activeElement.tagName === "BUTTON")) {
+          // Canal HLS: OK inicia la reproducción y activa el sonido
+          const v = stage.querySelector("video");
+          if (v) { e.preventDefault(); v.muted = false; v.play().then(() => { pstatus.textContent = "En vivo"; }).catch(() => {}); showHud(); return; }
+        }
+      }
       if (DIRS[e.key]) { e.preventDefault(); spatial(DIRS[e.key]); showHud(); }
       return;
     }

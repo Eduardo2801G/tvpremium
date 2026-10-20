@@ -27,6 +27,9 @@ jobs:
       - name: Parchear manifiesto para Android TV
         run: python3 scripts/patch_manifest.py
 
+      - name: Parchear MainActivity (autoplay y toque nativo)
+        run: python3 scripts/patch_activity.py
+
       - name: Sincronizar
         run: npx cap sync android
 
